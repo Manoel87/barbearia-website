@@ -452,12 +452,12 @@ h3{font-size:1.7rem;font-weight:800}
       </div>
       <div>
         <h3>Contato</h3>
-        <p id="footPhone">(81) 92002-6595</p>
+        <p id="footPhone">(81) 99796-7332</p>
         <p class="copy-line"><button class="link-btn" type="button" data-copy-id="footPhone">Copiar número</button></p>
         <p><a id="footInsta" href="https://www.instagram.com/navalhafina" target="_blank" rel="noopener">@navalhafina</a></p>
       </div>
     </div>
-    <p class="fine">NAVALHA FINA · VALORES E HORÁRIOS SÃO EXEMPLOS PARA SUBSTITUIR PELOS DADOS DA BARBEARIA.</p>
+    <p class="fine">O Rei da Navalha · Estilo se constrói com tradição, precisão e atenção a cada detalhe.</p>
   </div>
 </footer>
 
@@ -470,12 +470,16 @@ h3{font-size:1.7rem;font-weight:800}
 /* ===== Dados da barbearia: troque aqui ===== */
 var CONFIG={
   nome:'O Rei da Navalha',
-  whatsapp:'5581920026595',
-  telefone:'(81) 92002-6595',
+  whatsapp:'5581997967332', /* número do dono da barbearia: só números, com 55 na frente */
+  callmebotKey:'', /* opcional: apikey do CallMeBot para avisar o dono automaticamente (veja as instruções) */
+  telefone:'(81) 99796-7332',
   endereco:'Rua Amambái 256 - Candeias - Jaboatão Dos Guararapes',
   instagram:'navalhafina',
   tz:'America/Sao_Paulo'
 };
+/* Garante que o número fique só com dígitos e com o 55 na frente, mesmo que alguém digite (81) 99796-7332 */
+CONFIG.whatsapp=String(CONFIG.whatsapp).replace(/\D/g,'');
+if(CONFIG.whatsapp.length<=11)CONFIG.whatsapp='55'+CONFIG.whatsapp;
 /* ===== FOTOS DOS BARBEIROS =====
    As fotos do Manoel, do Artur e do Eliel já estão embutidas abaixo
    (não precisa de pasta). Se uma foto ficar vazia ou não carregar,
@@ -683,7 +687,7 @@ function renderFooter(){
 }
 
 /* ===== Agendamento ===== */
-var state={svc:{},barber:'any',dayOffset:null,time:null,assigned:null,name:'',phone:'',note:'',done:false};
+var state={svc:{},barber:'any',dayOffset:null,time:null,assigned:null,name:'',phone:'',note:'',done:false,notify:'idle'};
 state.svc['degrade']=true;
 try{
   var saved=JSON.parse(localStorage.getItem('nf-contato')||'null');
@@ -769,13 +773,53 @@ function buildMessage(){
   if(state.note.trim())lines.push('Obs.: '+state.note.trim());
   return lines.join('\n');
 }
+function waLink(text){return 'https://wa.me/'+CONFIG.whatsapp+'?text='+encodeURIComponent(text)}
+function clientLink(){
+  var d=state.phone.replace(/\D/g,'');
+  if(d.length<10)return '';
+  if(d.length<=11)d='55'+d;
+  return 'https://wa.me/'+d;
+}
+function ownerMessage(){
+  var t=totals(),d=currentDay();
+  var lines=[
+    'NOVO AGENDAMENTO - '+CONFIG.nome,
+    'Cliente: '+state.name.trim(),
+    'WhatsApp do cliente: '+state.phone,
+    'Responder ao cliente: '+clientLink(),
+    'Serviços: '+t.list.map(function(s){return s.name}).join(' + '),
+    'Barbeiro: '+(state.barber==='any'?barberName(state.assigned)+' (primeiro livre)':barberName(state.barber)),
+    'Dia: '+dayLabel(d)+' às '+fmtTime(state.time),
+    'Duração: '+fmtDur(t.min)+' · Total: '+money(t.price)
+  ];
+  if(state.note.trim())lines.push('Obs.: '+state.note.trim());
+  return lines.join('\n');
+}
+function notifyOwner(text){
+  var url='https://api.callmebot.com/whatsapp.php?phone='+encodeURIComponent('+'+CONFIG.whatsapp)+'&text='+encodeURIComponent(text)+'&apikey='+encodeURIComponent(CONFIG.callmebotKey);
+  return fetch(url,{method:'GET',mode:'no-cors'});
+}
+function confirmOrder(){
+  state.done=true;
+  if(CONFIG.callmebotKey){
+    state.notify='sending';
+    renderSummary();
+    notifyOwner(ownerMessage()).then(function(){state.notify='ok';renderSummary()},function(){state.notify='fail';renderSummary()});
+    return;
+  }
+  state.notify='idle';
+  renderSummary();
+  var w=window.open(waLink(buildMessage()),'_blank');
+  if(!w)toast('Toque em “Enviar pelo WhatsApp” para abrir a conversa');
+}
 function renderSummary(){
   var el=$('#summary'),t=totals(),d=currentDay();
   if(state.done&&missing().length===0){
     var text=buildMessage();
-    el.innerHTML='<h3>Pedido pronto</h3><p>Envie pelo WhatsApp para a barbearia confirmar. O horário só fica reservado depois da resposta.</p>'+
+    var ok=state.notify==='ok',sending=state.notify==='sending';
+    el.innerHTML='<h3>'+(ok?'Pedido enviado':sending?'Enviando…':'Pedido pronto')+'</h3><p>'+(ok?'A barbearia foi avisada e vai confirmar o seu horário pelo WhatsApp. O horário só fica reservado depois da resposta.':sending?'Aguarde um instante.':(state.notify==='fail'?'Não conseguimos avisar a barbearia automaticamente. ':'')+'Envie pelo WhatsApp para a barbearia confirmar. O horário só fica reservado depois da resposta.')+'</p>'+
       '<pre class="msg" id="msgPre">'+esc(text)+'</pre>'+
-      '<div class="sum-actions"><a class="btn btn-primary" href="https://wa.me/'+CONFIG.whatsapp+'?text='+encodeURIComponent(text)+'" target="_blank" rel="noopener">Enviar pelo WhatsApp</a>'+
+      '<div class="sum-actions"><a class="btn'+(ok?'':' btn-primary')+'" href="'+waLink(text)+'" target="_blank" rel="noopener">'+(ok?'Conversar com a barbearia':'Enviar pelo WhatsApp')+'</a>'+
       '<button type="button" class="btn" id="copyMsg">Copiar resumo</button>'+
       '<button type="button" class="link-btn" id="editOrder">Editar pedido</button></div>';
     return;
@@ -788,7 +832,7 @@ function renderSummary(){
     '<dl class="sum-rows"><div><dt>Barbeiro</dt><dd>'+esc(bTxt)+'</dd></div><div><dt>Quando</dt><dd>'+esc(when)+'</dd></div><div><dt>Duração</dt><dd>'+(t.min?fmtDur(t.min):'—')+'</dd></div></dl>'+
     '<div class="sum-total"><span>Total</span><strong>'+money(t.price)+'</strong></div>'+
     (miss.length?'<p class="missing">Falta: '+miss.join(', ')+'.</p>':'')+
-    '<button type="button" class="btn btn-primary" id="confirmBtn"'+(miss.length?' disabled':'')+'>Gerar pedido</button>';
+    '<button type="button" class="btn btn-primary" id="confirmBtn"'+(miss.length?' disabled':'')+'>Enviar agendamento</button>';
 }
 function refresh(opts){
   opts=opts||{};
@@ -831,7 +875,7 @@ function bind(){
   fNote.addEventListener('input',function(){state.note=fNote.value;state.done=false;renderSummary()});
   $('#summary').addEventListener('click',function(e){
     var id=e.target.id;
-    if(id==='confirmBtn'&&missing().length===0){state.done=true;renderSummary();refocus('#copyMsg')}
+    if(id==='confirmBtn'&&missing().length===0){confirmOrder()}
     else if(id==='copyMsg')copyText(buildMessage(),$('#msgPre'));
     else if(id==='editOrder'){state.done=false;renderSummary()}
   });
